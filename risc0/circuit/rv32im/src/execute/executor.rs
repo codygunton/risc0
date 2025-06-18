@@ -87,6 +87,7 @@ pub struct ExecutorResult {
     pub paging_cycles: u64,
     pub reserved_cycles: u64,
     pub claim: Rv32imV2Claim,
+    pub test_signatures: Option<Vec<u32>>,
 }
 
 #[derive(Default)]
@@ -365,6 +366,36 @@ impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
             segment_callback_thread.join().unwrap()
         })?;
 
+        // Log a small memory region for debugging
+        let test_signatures = if let (Ok(begin_addr_str), Ok(size_str)) = (
+            std::env::var("RISC0_SIG_BEGIN_ADDR"),
+            std::env::var("RISC0_SIG_SIZE")
+        ) {
+            tracing::debug!("Found environment variables: RISC0_SIG_BEGIN_ADDR={}, RISC0_SIG_SIZE={}", begin_addr_str, size_str);
+            let begin_addr: u32 = if begin_addr_str.starts_with("0x") || begin_addr_str.starts_with("0X") {
+                u32::from_str_radix(&begin_addr_str[2..], 16).unwrap_or_else(|_| {
+                    tracing::warn!("Invalid RISC0_SIG_BEGIN_ADDR, using default 0x80006110");
+                    0x80006110
+                })
+            } else {
+                begin_addr_str.parse().unwrap_or_else(|_| {
+                    tracing::warn!("Invalid RISC0_SIG_BEGIN_ADDR, using default 0x80006110");
+                    0x80006110
+                })
+            };
+            let size: usize = size_str.parse().unwrap_or_else(|_| {
+                tracing::warn!("Invalid RISC0_SIG_SIZE, using default 2356");
+                2356
+            });
+            tracing::debug!("Parsed values: addr=0x{:x}, size={}", begin_addr, size);
+            tracing::debug!("Using dynamic signature collection: addr=0x{:x}, size={}", begin_addr, size);
+            self.collect_signatures(ByteAddr(begin_addr), size)?
+        } else {
+            tracing::debug!("Environment variables not found, using hardcoded values");
+            tracing::debug!("No signature symbols found, using hardcoded values: addr=0x80006110, size=2356");
+            self.collect_signatures(ByteAddr(0x80006110), 2356)?
+        };
+
         let session_claim = Rv32imV2Claim {
             pre_state: initial_digest,
             post_state: post_digest,
@@ -382,6 +413,7 @@ impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
             paging_cycles: self.cycles.paging,
             reserved_cycles: self.cycles.reserved,
             claim: session_claim,
+            test_signatures: Some(test_signatures),
         })
     }
 
@@ -491,6 +523,7 @@ impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
     fn trace_instruction(&mut self, cycle: u64, kind: InsnKind, decoded: &DecodedInstruction) {
         if unlikely(tracing::enabled!(tracing::Level::TRACE)) {
             tracing::trace!(
+                // lovely!
                 "[{}:{}:{cycle}] {:?}> {:#010x}  {}",
                 self.user_cycles + 1,
                 self.segment_cycles() + 1,
@@ -501,6 +534,46 @@ impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
         }
         if unlikely(tracing::enabled!(tracing::Level::DEBUG)) {
             self.ring.push((self.pc, kind, decoded.clone()));
+        }
+    }
+
+    // fn log_memory_region(&mut self, addr: ByteAddr, size: usize) {
+    //     if let Ok(region_data) = self.load_region(LoadOp::Peek, addr, size) {
+    //         tracing::info!("Memory dump at {:#x} ({} bytes):", addr.0, size);
+    //         const CHUNK_SIZE: usize = 4;
+    //         for (i, chunk) in region_data.chunks(CHUNK_SIZE).enumerate() {
+    //             let chunk_addr = addr.0 + (i * CHUNK_SIZE) as u32;
+    //             let hex_str = chunk
+    //                 .iter()
+    //                 .map(|b| format!("{:02x}", b))
+    //                 .collect::<Vec<_>>()
+    //                 .join(" ");
+    //             tracing::info!("  {:#x}: {}", chunk_addr, hex_str);
+    //         }
+    //     } else {
+    //         tracing::warn!("Failed to read memory region at {:#x}", addr.0);
+    //     }
+    // }
+
+    fn collect_signatures(&mut self, addr: ByteAddr, size: usize) -> Result<Vec<u32>> {
+        const NUM_SIGNATURE_BYTES: usize = 4;
+        if let Ok(region_data) = self.load_region(LoadOp::Peek, addr, size) {
+            let mut signatures = Vec::<u32>::new();
+            for chunk in region_data.chunks(NUM_SIGNATURE_BYTES) {
+                let signature = chunk
+                    .iter()
+                    .rev()
+                    .fold(0, |acc: u32, &b: &u8| (acc << 8) + (b as u32));
+                // tracing::debug!("signature: {signature:08x}");
+                signatures.push(signature);
+            }
+            Ok(signatures)
+        } else {
+            tracing::warn!("Failed to read memory region at {:#x}", addr.0);
+            Err(anyhow::anyhow!(
+                "Failed to read memory region at {:#x}",
+                addr.0
+            ))
         }
     }
 }

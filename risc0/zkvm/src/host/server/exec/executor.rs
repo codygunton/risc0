@@ -36,6 +36,9 @@ use risc0_zkp::core::digest::Digest;
 use risc0_zkvm_platform::{align_up, fileno};
 use tempfile::tempdir;
 
+// Add ELF parsing imports
+use elf::{abi::STT_OBJECT, endian::AnyEndian, ElfBytes};
+
 use crate::{
     claim::receipt::exit_code_from_terminate_state,
     host::{client::env::SegmentPath, server::session::Session},
@@ -78,6 +81,60 @@ fn check_program_version(header: &ProgramBinaryHeader) -> Result<()> {
     Ok(())
 }
 
+/// Parse ELF symbols to find signature region boundaries and set environment variables
+fn parse_and_set_signature_symbols(elf_data: &[u8]) -> Result<()> {
+    tracing::debug!("Starting ELF symbol parsing...");
+    let elf = ElfBytes::<AnyEndian>::minimal_parse(elf_data).context("Failed to parse ELF file")?;
+
+    let (symbol_table, string_table) = elf
+        .symbol_table()
+        .context("Failed to get symbol table")?
+        .ok_or_else(|| anyhow::anyhow!("No symbol table found"))?;
+
+    let mut begin_signature_addr: Option<u64> = None;
+    let mut end_signature_addr: Option<u64> = None;
+
+    tracing::debug!("Scanning {} symbols...", symbol_table.len());
+
+    for symbol in symbol_table.iter() {
+        if symbol.st_symtype() == STT_OBJECT || symbol.st_symtype() == elf::abi::STT_NOTYPE {
+            if let Ok(name) = string_table.get(symbol.st_name as usize) {
+                // tracing::debug!("Found symbol: {} at address 0x{:x}", name, symbol.st_value);
+                match name {
+                    "begin_signature" => {
+                        begin_signature_addr = Some(symbol.st_value);
+                        tracing::debug!("Found begin_signature at 0x{:x}", symbol.st_value);
+                    }
+                    "end_signature" => {
+                        end_signature_addr = Some(symbol.st_value);
+                        tracing::debug!("Found end_signature at 0x{:x}", symbol.st_value);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    if let (Some(begin_addr), Some(end_addr)) = (begin_signature_addr, end_signature_addr) {
+        let size = (end_addr - begin_addr) as usize;
+        tracing::debug!("Setting RISC0_SIG_BEGIN_ADDR=0x{:x}", begin_addr);
+        tracing::debug!("Setting RISC0_SIG_SIZE={}", size);
+
+        std::env::set_var("RISC0_SIG_BEGIN_ADDR", format!("0x{:x}", begin_addr));
+        std::env::set_var("RISC0_SIG_SIZE", size.to_string());
+
+        tracing::debug!("Environment variables set successfully");
+        Ok(())
+    } else {
+        tracing::debug!("Could not find both begin_signature and end_signature symbols");
+        Err(anyhow::anyhow!(
+            "Could not find signature symbols: begin_signature={:?}, end_signature={:?}",
+            begin_signature_addr,
+            end_signature_addr
+        ))
+    }
+}
+
 impl<'a> ExecutorImpl<'a> {
     /// Construct a new [ExecutorImpl] from a [MemoryImage] and entry point.
     ///
@@ -96,6 +153,11 @@ impl<'a> ExecutorImpl<'a> {
     pub fn from_elf(mut env: ExecutorEnv<'a>, elf: &[u8]) -> Result<Self> {
         let binary = ProgramBinary::decode(elf)?;
         check_program_version(&binary.header)?;
+
+        // Parse signature symbols and set environment variables
+        if let Err(e) = parse_and_set_signature_symbols(elf) {
+            tracing::warn!("Failed to parse signature symbols: {}", e);
+        }
 
         let image = binary.to_image()?;
 
@@ -116,7 +178,12 @@ impl<'a> ExecutorImpl<'a> {
 
     /// TODO(flaub)
     #[allow(dead_code)]
-    pub(crate) fn from_kernel_elf(env: ExecutorEnv<'a>, elf: &[u8]) -> Result<Self> {
+    pub fn from_kernel_elf(env: ExecutorEnv<'a>, elf: &[u8]) -> Result<Self> {
+        // Parse signature symbols and set environment variables
+        if let Err(e) = parse_and_set_signature_symbols(elf) {
+            tracing::warn!("Failed to parse signature symbols: {}", e);
+        }
+
         let kernel = Program::load_elf(elf, u32::MAX)?;
         let image = MemoryImage::new_kernel(kernel);
         Self::with_details(env, Some(elf), image, None)
@@ -305,6 +372,7 @@ impl<'a> ExecutorImpl<'a> {
             hooks: vec![],
             ecall_metrics: ecall_metrics.into(),
             povw_job_id: self.env.povw_job_id,
+            test_signatures: result.test_signatures,
         };
 
         tracing::info!("execution time: {elapsed:?}");
