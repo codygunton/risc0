@@ -38,6 +38,7 @@ template <bool isGlobal> struct Buffer {
              col,
              val.asUInt32(),
              elem.asUInt32());
+      // this throw is triggering: with set(row: 1668, col: 14, val: 0x000001d5) cur: 0x000001d4
       throw std::runtime_error("Inconsistent set");
     }
     // printf("set(row: %zu, col: %zu, val: 0x%08x)\n", row, col, val.asUInt32());

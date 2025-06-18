@@ -141,14 +141,13 @@ impl KernelBuild {
         // `RUSTC_WRAPPER=/path/to/sccache` to speed up rebuilds of C++ kernels
         cc::Build::new()
             .cpp(true)
-            .debug(false)
+            .debug(true)
             .files(&self.files)
             .includes(&self.inc_dirs)
             .flag_if_supported("/std:c++17")
             .flag_if_supported("-std=c++17")
-            .flag_if_supported("-fno-var-tracking")
-            .flag_if_supported("-fno-var-tracking-assignments")
-            .flag_if_supported("-g0")
+            // .flag_if_supported("-fno-var-tracking")
+            // .flag_if_supported("-fno-var-tracking-assignments")
             .compile(output);
     }
 

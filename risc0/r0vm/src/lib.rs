@@ -101,6 +101,10 @@ struct Cli {
     /// Number of GPUs to use.
     #[arg(long)]
     num_gpus: Option<usize>,
+
+    /// Test signatures output file.
+    #[arg(long)]
+    signatures: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -126,6 +130,10 @@ struct Mode {
 
     #[arg(long)]
     config: Option<PathBuf>,
+
+    /// Test ELF to execute (for RISC-V test files)
+    #[arg(long)]
+    test_elf: Option<PathBuf>,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -223,6 +231,12 @@ pub fn main() {
             let image_contents = std::fs::read(image_path).unwrap();
             let image = bincode::deserialize(&image_contents).unwrap();
             ExecutorImpl::new(env, image).unwrap()
+        } else if let Some(ref test_elf_path) = args.mode.test_elf {
+            // Read the test ELF file
+            let elf_contents = fs::read(test_elf_path).unwrap();
+
+            // Use from_kernel_elf which includes ELF symbol parsing
+            ExecutorImpl::from_kernel_elf(env, &elf_contents).unwrap()
         } else {
             unreachable!()
         };
@@ -249,6 +263,19 @@ pub fn main() {
                 receipt_file.display()
             );
         }
+    }
+
+    if let Some(signature_file) = args.signatures.as_ref() {
+        fs::write(
+            signature_file,
+            session
+                .test_signatures
+                .expect("No signatures found")
+                .iter()
+                .map(|signature| format!("{:08x}\n", signature))
+                .collect::<String>(),
+        )
+        .expect("Unable to write signature file");
     }
 }
 
