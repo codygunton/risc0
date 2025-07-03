@@ -94,6 +94,9 @@ pub struct Session {
     /// The system state of the final MemoryImage at the end of execution.
     pub post_state: SystemState,
 
+    /// Signatures used for emulator testing and fuzzing
+    pub test_signatures: Option<Vec<u32>>,
+
     /// A list of pending ZKR proof requests.
     // TODO: make this scalable so we don't OOM
     pub(crate) pending_zkrs: Vec<ProveZkrRequest>,

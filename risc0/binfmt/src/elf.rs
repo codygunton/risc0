@@ -208,15 +208,15 @@ impl Default for ProgramBinaryHeader {
 
 impl ProgramBinaryHeader {
     fn decode(mut bytes: &[u8]) -> Result<Self> {
-        let num_kv_pairs = bytes.read_u32().context("Malformed ProgramBinaryHeader")?;
+        let num_kv_pairs = bytes.read_u32().context("Malformed ProgramBinaryHeader: failed to read number of key-value pairs")?;
 
         // Decode the key-value pairs
         let mut kv_pairs = vec![];
         for _ in 0..num_kv_pairs {
-            let kv_pair_len = bytes.read_u32().context("Malformed ProgramBinaryHeader")?;
+            let kv_pair_len = bytes.read_u32().context("Malformed ProgramBinaryHeader: failed to read key-value pair length")?;
             let kv_bytes = bytes
                 .read_slice(kv_pair_len as usize)
-                .context("Malformed ProgramBinaryHeader")?;
+                .context("Malformed ProgramBinaryHeader: failed to read key-value pair data")?;
 
             // Skip any entries we can't decode
             if let Ok(kv_pair) = postcard::from_bytes(kv_bytes) {
@@ -225,12 +225,12 @@ impl ProgramBinaryHeader {
         }
 
         if !bytes.is_empty() {
-            bail!("Malformed ProgramBinaryHeader: trailing bytes");
+            bail!("Malformed ProgramBinaryHeader: unexpected trailing bytes after key-value pairs");
         }
 
         // Find the individual key-value pairs we need
         if kv_pairs.len() != 1 {
-            bail!("Malformed ProgramBinaryHeader: duplicate attributes");
+            bail!("Malformed ProgramBinaryHeader: expected exactly one ABI version attribute, found {}", kv_pairs.len());
         }
         let (abi_kind, abi_version) = kv_pairs
             .into_iter()
@@ -326,32 +326,34 @@ impl<'a> ProgramBinary<'a> {
         // Read MAGIC bytes. These signal the file format.
         let magic = blob
             .read_slice(MAGIC.len())
-            .context("Malformed ProgramBinary")?;
-        ensure!(magic == MAGIC, "Malformed ProgramBinary");
+            .context("Malformed ProgramBinary: failed to read magic bytes")?;
+        ensure!(magic == MAGIC, "Malformed ProgramBinary: invalid magic bytes, expected {:?} but got {:?}", MAGIC, magic);
 
         // Read the format version number.
-        let binary_format_version = blob.read_u32().context("Malformed ProgramBinary")?;
+        let binary_format_version = blob.read_u32().context("Malformed ProgramBinary: failed to read binary format version")?;
         ensure!(
             binary_format_version == BINARY_FORMAT_VERSION,
-            "ProgramBinary binary format version mismatch"
+            "Malformed ProgramBinary: unsupported binary format version {} (expected {})",
+            binary_format_version,
+            BINARY_FORMAT_VERSION
         );
 
         // Read the header.
-        let header_len = blob.read_u32().context("Malformed ProgramBinary")? as usize;
+        let header_len = blob.read_u32().context("Malformed ProgramBinary: failed to read header length")? as usize;
         let header = ProgramBinaryHeader::decode(
             blob.read_slice(header_len)
-                .context("Malformed ProgramBinary")?,
+                .context("Malformed ProgramBinary: failed to read header data")?,
         )?;
 
         // Read user length, and calculate kernel offset / length
-        let user_len = blob.read_u32().context("Malformed ProgramBinary")? as usize;
+        let user_len = blob.read_u32().context("Malformed ProgramBinary: failed to read user ELF length")? as usize;
         let user_elf = blob
             .read_slice(user_len)
-            .context("Malformed ProgramBinary")?;
-        ensure!(!user_elf.is_empty(), "Malformed ProgramBinary");
+            .context("Malformed ProgramBinary: failed to read user ELF data")?;
+        ensure!(!user_elf.is_empty(), "Malformed ProgramBinary: user ELF is empty");
 
         let kernel_elf = blob;
-        ensure!(!kernel_elf.is_empty(), "Malformed ProgramBinary");
+        ensure!(!kernel_elf.is_empty(), "Malformed ProgramBinary: kernel ELF is empty");
 
         Ok(Self {
             header,
