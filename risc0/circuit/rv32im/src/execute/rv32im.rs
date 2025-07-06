@@ -332,7 +332,7 @@ impl Emulator {
             0
         };
         let out = match kind {
-            InsnKind::Add => rs1.wrapping_sub(rs2),
+            InsnKind::Add => rs1.wrapping_add(rs2),
             InsnKind::Sub => rs1.wrapping_sub(rs2),
             InsnKind::Xor => rs1 ^ rs2,
             InsnKind::Or => rs1 | rs2,
