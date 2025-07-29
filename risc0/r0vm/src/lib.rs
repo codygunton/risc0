@@ -16,14 +16,14 @@
 mod actors;
 mod api;
 
-use std::{io, net::SocketAddr, path::PathBuf, rc::Rc};
-
 use clap::{Args, Parser, ValueEnum};
 use risc0_circuit_rv32im::execute::Segment;
 use risc0_zkvm::{
     ApiServer, ExecutorEnv, ExecutorImpl, ProverOpts, ProverServer, VerifierContext,
     compute_image_id, compute_kernel_id, get_prover_server,
 };
+use std::fs;
+use std::{io, net::SocketAddr, path::PathBuf, rc::Rc};
 use tracing_subscriber::EnvFilter;
 
 /// Runs a RISC-V ELF binary within the RISC Zero ZKVM.
