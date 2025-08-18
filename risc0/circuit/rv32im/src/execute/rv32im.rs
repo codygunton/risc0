@@ -148,11 +148,12 @@ pub enum InsnKind {
     Rem = 38,  // major: 4, minor: 6
     RemU = 39, // major: 4, minor: 7
 
-    Lb = 40,  // major: 5, minor: 0
-    Lh = 41,  // major: 5, minor: 1
-    Lw = 42,  // major: 5, minor: 2
-    LbU = 43, // major: 5, minor: 3
-    LhU = 44, // major: 5, minor: 4
+    Lb = 40,    // major: 5, minor: 0
+    Lh = 41,    // major: 5, minor: 1
+    Lw = 42,    // major: 5, minor: 2
+    LbU = 43,   // major: 5, minor: 3
+    LhU = 44,   // major: 5, minor: 4
+    Fence = 45, // major: 5, minor: 5
 
     Sb = 48, // major: 6, minor: 0
     Sh = 49, // major: 6, minor: 1
@@ -261,6 +262,8 @@ impl Emulator {
             (0b0000011, 0b010, _) => self.step_load(ctx, InsnKind::Lw, decoded),
             (0b0000011, 0b100, _) => self.step_load(ctx, InsnKind::LbU, decoded),
             (0b0000011, 0b101, _) => self.step_load(ctx, InsnKind::LhU, decoded),
+            // FENCE instruction
+            (0b0001111, 0b000, _) => self.step_fence(ctx, InsnKind::Fence, decoded),
             // S-format memory stores
             (0b0100011, 0b000, _) => self.step_store(ctx, InsnKind::Sb, decoded),
             (0b0100011, 0b001, _) => self.step_store(ctx, InsnKind::Sh, decoded),
@@ -553,6 +556,34 @@ impl Emulator {
     }
 
     #[inline(always)]
+    fn step_fence<M: EmuContext>(
+        &mut self,
+        ctx: &mut M,
+        kind: InsnKind,
+        decoded: DecodedInstruction,
+    ) -> Result<Option<InsnKind>> {
+        self.trace_instruction(ctx, kind, &decoded)?;
+        
+        // FENCE is in Memory0 component which performs a memory read
+        // We need to match this behavior in the emulator
+        // The address is rs1 + imm_i
+        let rs1_val = ctx.load_register(decoded.rs1 as usize)?;
+        let addr = rs1_val.wrapping_add(decoded.imm_i());
+        
+        // Align address to word boundary
+        let aligned_addr = addr & !3;
+        
+        // Try to perform the memory read - if it fails, that's ok
+        // The circuit will read whatever is there (possibly uninitialized)
+        let word_addr = WordAddr::from(ByteAddr(aligned_addr));
+        let _ = ctx.load_memory(word_addr).unwrap_or(0);
+        
+        // FENCE is a no-op, just advance PC
+        ctx.set_pc(ctx.get_pc() + WORD_SIZE);
+        Ok(Some(kind))
+    }
+
+    #[inline(always)]
     fn step_system<M: EmuContext>(
         &mut self,
         ctx: &mut M,
@@ -648,6 +679,11 @@ pub fn disasm(kind: InsnKind, decoded: &DecodedInstruction) -> String {
         InsnKind::Lw => format!("lw {rd}, {}({rs1})", decoded.imm_i() as i32),
         InsnKind::LbU => format!("lbu {rd}, {}({rs1})", decoded.imm_i() as i32),
         InsnKind::LhU => format!("lhu {rd}, {}({rs1})", decoded.imm_i() as i32),
+        InsnKind::Fence => {
+            let imm = decoded.imm_i();
+            let (pred, succ) = ((imm >> 4) & 0xf, imm & 0xf);
+            format!("fence {:x}, {:x}", pred, succ)
+        }
         InsnKind::Sb => format!("sb {rs2}, {}({rs1})", decoded.imm_s() as i32),
         InsnKind::Sh => format!("sh {rs2}, {}({rs1})", decoded.imm_s() as i32),
         InsnKind::Sw => format!("sw {rs2}, {}({rs1})", decoded.imm_s() as i32),

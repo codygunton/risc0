@@ -18,7 +18,7 @@ use test_log::test;
 
 use crate::{TerminateState, MAX_INSN_CYCLES};
 
-use super::{testutil, DEFAULT_SEGMENT_LIMIT_PO2};
+use super::{testutil, testutil::Assembler, DEFAULT_SEGMENT_LIMIT_PO2};
 
 #[test]
 fn basic() {
@@ -90,4 +90,63 @@ fn system_split() {
 
     assert!(segments[0].read_record.is_empty());
     assert!(segments[0].write_record.is_empty());
+}
+
+#[test]
+fn simple_fence() {
+    // Create a simple program with a fence instruction
+    let mut asm = Assembler::new();
+    asm.fence();
+    asm.host_terminate(0, 0);
+    let program = asm.program();
+    
+    let image = MemoryImage::new_kernel(program);
+    let session = testutil::execute(
+        image,
+        DEFAULT_SEGMENT_LIMIT_PO2,
+        MAX_INSN_CYCLES,
+        testutil::DEFAULT_SESSION_LIMIT,
+        &testutil::NullSyscall,
+        None,
+    )
+    .unwrap();
+    
+    // Just verify it executes without errors
+    assert_eq!(session.segments.len(), 1);
+    assert_eq!(
+        session.segments[0].claim.terminate_state,
+        Some(TerminateState::default())
+    );
+}
+
+#[test]
+fn fence_with_operations() {
+    // Test multiple FENCE instructions in sequence
+    let mut asm = Assembler::new();
+    // Multiple fence instructions
+    asm.fence();
+    asm.addi(1, 0, 42); // x1 = 42
+    asm.fence();
+    asm.addi(2, 1, 0);  // x2 = x1
+    asm.fence();
+    asm.host_terminate(0, 0);
+    let program = asm.program();
+    
+    let image = MemoryImage::new_kernel(program);
+    let session = testutil::execute(
+        image,
+        DEFAULT_SEGMENT_LIMIT_PO2,
+        MAX_INSN_CYCLES,
+        testutil::DEFAULT_SESSION_LIMIT,
+        &testutil::NullSyscall,
+        None,
+    )
+    .unwrap();
+    
+    // Verify successful execution
+    assert_eq!(session.segments.len(), 1);
+    assert_eq!(
+        session.segments[0].claim.terminate_state,
+        Some(TerminateState::default())
+    );
 }

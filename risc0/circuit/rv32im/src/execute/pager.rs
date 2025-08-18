@@ -119,6 +119,7 @@ impl PageStates {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn iter(&self) -> impl Iterator<Item = (u32, PageState)> + '_ {
         self.indexes.iter().map(|index| (*index, self.get(*index)))
     }
@@ -248,6 +249,7 @@ impl WorkingImage {
         self.pages.insert(page_idx, page);
     }
 
+    #[allow(dead_code)]
     pub(crate) fn get_page_indexes(&self) -> BTreeSet<u32> {
         self.pages.keys().copied().collect()
     }

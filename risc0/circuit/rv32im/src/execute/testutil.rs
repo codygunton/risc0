@@ -175,7 +175,7 @@ mod consts {
 
 use consts::*;
 
-struct Assembler {
+pub struct Assembler {
     text: Vec<u32>,
     data: BTreeMap<u32, u32>,
 }
@@ -301,8 +301,12 @@ impl Assembler {
         self.ecall();
     }
 
-    pub fn die(&mut self) {
+    pub fn fence(&mut self) {
         self.text.push(fence());
+    }
+
+    pub fn die(&mut self) {
+        self.text.push(0x00000000);
     }
 }
 
