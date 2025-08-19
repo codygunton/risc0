@@ -387,7 +387,9 @@ mod riscv {
 
             let env = ExecutorEnv::default();
             prove_elf(env, &elf).unwrap();
+            return;
         }
+        panic!("uh oh!");
     }
 
     macro_rules! test_case {
@@ -399,6 +401,7 @@ mod riscv {
         };
     }
 
+    test_case!(fence);
     test_case!(add);
     test_case!(addi);
     test_case!(and);
