@@ -121,8 +121,8 @@ fn parse_and_set_signature_symbols(elf_data: &[u8]) -> Result<()> {
         tracing::debug!("Setting RISC0_SIG_BEGIN_ADDR=0x{:x}", begin_addr);
         tracing::debug!("Setting RISC0_SIG_SIZE={}", size);
 
-        std::env::set_var("RISC0_SIG_BEGIN_ADDR", format!("0x{:x}", begin_addr));
-        std::env::set_var("RISC0_SIG_SIZE", size.to_string());
+        unsafe { std::env::set_var("RISC0_SIG_BEGIN_ADDR", format!("0x{:x}", begin_addr)); }
+        unsafe { std::env::set_var("RISC0_SIG_SIZE", size.to_string()); }
 
         tracing::debug!("Environment variables set successfully");
         Ok(())
