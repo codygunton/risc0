@@ -19,7 +19,7 @@ mod api;
 use clap::{Args, Parser, ValueEnum};
 use risc0_circuit_rv32im::execute::Segment;
 use risc0_zkvm::{
-    ApiServer, ExecutorEnv, ExecutorImpl, ProverOpts, ProverServer, VerifierContext,
+    ApiServer, ExecutorEnv, ExecutorImpl, ExitCode, ProverOpts, ProverServer, VerifierContext,
     compute_image_id, compute_kernel_id, get_prover_server,
 };
 use std::fs;
@@ -105,6 +105,11 @@ struct Cli {
     /// Test signatures output file.
     #[arg(long)]
     signatures: Option<PathBuf>,
+
+    /// Execute without proving; exit with guest exit code (0=pass, 1=fail, 2=timeout).
+    /// Intended for compliance test runners that check the process exit code.
+    #[arg(long)]
+    execute_only: bool,
 }
 
 #[derive(Args)]
@@ -247,6 +252,15 @@ pub fn main() {
             exec.run().unwrap()
         }
     };
+
+    if args.execute_only {
+        let code = match session.exit_code {
+            ExitCode::Halted(code) => code as i32,
+            ExitCode::SessionLimit => 2,
+            _ => 1,
+        };
+        std::process::exit(code);
+    }
 
     let prover = args.get_prover();
     let ctx = VerifierContext::default();
