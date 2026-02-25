@@ -21,8 +21,8 @@ use std::{io, net::SocketAddr, path::PathBuf, rc::Rc};
 use clap::{Args, Parser, ValueEnum};
 use risc0_circuit_rv32im::execute::Segment;
 use risc0_zkvm::{
-    ExecutorEnv, ExecutorImpl, ProverOpts, ProverServer, VerifierContext, compute_image_id,
-    compute_kernel_id, get_prover_server,
+    ExitCode, ExecutorEnv, ExecutorImpl, ProverOpts, ProverServer, VerifierContext,
+    compute_image_id, compute_kernel_id, get_prover_server,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -101,6 +101,10 @@ struct Cli {
     /// Number of GPUs to use.
     #[arg(long)]
     num_gpus: Option<usize>,
+
+    /// Execute without proving; exit with the guest's exit code.
+    #[arg(long)]
+    execute_only: bool,
 }
 
 #[derive(Args)]
@@ -234,6 +238,14 @@ pub fn main() {
             exec.run().unwrap()
         }
     };
+
+    if args.execute_only {
+        let code = match session.exit_code {
+            ExitCode::Halted(code) | ExitCode::Paused(code) => code as i32,
+            _ => 1,
+        };
+        std::process::exit(code);
+    }
 
     let prover = args.get_prover();
     let ctx = VerifierContext::default();
