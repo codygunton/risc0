@@ -21,7 +21,7 @@ use std::{io, net::SocketAddr, path::PathBuf, rc::Rc};
 use clap::{Args, Parser, ValueEnum};
 use risc0_circuit_rv32im::execute::Segment;
 use risc0_zkvm::{
-    ExecutorEnv, ExecutorImpl, ProverOpts, ProverServer, VerifierContext, compute_image_id,
+    ExecutorEnv, ExecutorImpl, ExitCode, ProverOpts, ProverServer, VerifierContext, compute_image_id,
     compute_kernel_id, get_prover_server,
 };
 use tracing_subscriber::EnvFilter;
@@ -101,6 +101,11 @@ struct Cli {
     /// Number of GPUs to use.
     #[arg(long)]
     num_gpus: Option<usize>,
+
+    /// Execute without proving; exit with guest exit code (0=pass, 1=fail, 2=timeout).
+    /// Intended for compliance test runners that check the process exit code.
+    #[arg(long)]
+    execute_only: bool,
 }
 
 #[derive(Args)]
@@ -120,6 +125,10 @@ struct Mode {
     /// The image to execute
     #[arg(long)]
     image: Option<PathBuf>,
+
+    /// Standard RISC-V ELF to execute via from_kernel_elf (for ACT4 compliance tests).
+    #[arg(long)]
+    test_elf: Option<PathBuf>,
 
     /// Prove a pre-recorded segment.
     #[arg(long)]
@@ -224,6 +233,9 @@ pub fn main() {
             let image_contents = std::fs::read(image_path).unwrap();
             let image = bincode::deserialize(&image_contents).unwrap();
             ExecutorImpl::new(env, image).unwrap()
+        } else if let Some(ref test_elf_path) = args.mode.test_elf {
+            let elf_contents = std::fs::read(test_elf_path).unwrap();
+            ExecutorImpl::from_kernel_elf(env, &elf_contents).unwrap()
         } else {
             unreachable!()
         };
@@ -234,6 +246,15 @@ pub fn main() {
             exec.run().unwrap()
         }
     };
+
+    if args.execute_only {
+        let code = match session.exit_code {
+            ExitCode::Halted(code) => code as i32,
+            ExitCode::SessionLimit => 2,
+            _ => 1,
+        };
+        std::process::exit(code);
+    }
 
     let prover = args.get_prover();
     let ctx = VerifierContext::default();

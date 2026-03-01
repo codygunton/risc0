@@ -254,7 +254,7 @@ impl<'a> ExecutorImpl<'a> {
     ///
     /// This is an internal helper used for kernel-level execution paths.
     #[allow(dead_code)]
-    pub(crate) fn from_kernel_elf(env: ExecutorEnv<'a>, elf: &[u8]) -> Result<Self> {
+    pub fn from_kernel_elf(env: ExecutorEnv<'a>, elf: &[u8]) -> Result<Self> {
         let kernel = Program::load_elf(elf, u32::MAX)?;
         let image = MemoryImage::new_kernel(kernel);
         Self::with_details(env, Some(elf), image, None)
